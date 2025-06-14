@@ -7,24 +7,23 @@
 namespace kiren {
     
     Runtime::Runtime() {
-        std::cout << "🎨 Initializing Kiren Runtime..." << std::endl;
+        // Silent initialization - no debug output
         setupGlobals();
-        std::cout << "✨ Runtime ready for magic!" << std::endl;
     }
     
     Runtime::~Runtime() {
-        std::cout << "🌙 Runtime shutdown complete" << std::endl;
+        // Silent cleanup
     }
     
     bool Runtime::executeFile(const std::string& filepath) {
         if (!fileExists(filepath)) {
-            std::cout << "❌ File not found: " << filepath << std::endl;
+            std::cerr << "kiren: " << filepath << ": No such file or directory" << std::endl;
             return false;
         }
         
         std::string source = readFile(filepath);
         if (source.empty()) {
-            std::cout << "❌ Could not read file: " << filepath << std::endl;
+            std::cerr << "kiren: Could not read file: " << filepath << std::endl;
             return false;
         }
         
@@ -32,19 +31,9 @@ namespace kiren {
     }
     
     bool Runtime::executeString(const std::string& code, const std::string& filename) {
-        std::cout << "🎭 Executing: " << filename << std::endl;
-        
-        // Use our simple JavaScript interpreter
+        // Direct execution - no debug messages
         js::SimpleInterpreter interpreter;
-        bool success = interpreter.execute(code);
-        
-        if (success) {
-            std::cout << "✅ Execution completed successfully!" << std::endl;
-        } else {
-            std::cout << "❌ Execution failed!" << std::endl;
-        }
-        
-        return success;
+        return interpreter.execute(code);
     }
     
     bool Runtime::fileExists(const std::string& filepath) {
@@ -63,7 +52,7 @@ namespace kiren {
     }
     
     void Runtime::setupGlobals() {
-        std::cout << "🌍 Setting up global environment..." << std::endl;
+        // Silent setup
     }
     
     std::unique_ptr<Runtime> createRuntime() {

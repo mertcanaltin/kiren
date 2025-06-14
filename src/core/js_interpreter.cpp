@@ -9,16 +9,14 @@ namespace kiren::js {
         std::stringstream ss(code);
         std::string line;
         
-        std::cout << "🎭 Executing JavaScript with Kiren's built-in interpreter..." << std::endl;
-        
+        // Silent execution
         while (std::getline(ss, line)) {
             line = trim(line);
             if (line.empty() || (line.size() >= 2 && line[0] == '/' && line[1] == '/')) {
-                continue; // Skip empty lines and comments
+                continue;
             }
             
             if (!parseLine(line)) {
-                std::cout << "❌ Error parsing line: " << line << std::endl;
                 return false;
             }
         }
@@ -42,19 +40,18 @@ namespace kiren::js {
             return executeVariableDeclaration(line);
         }
         
-        return true; // Ignore unknown statements for now
+        return true;
     }
     
     bool SimpleInterpreter::executeConsoleLog(const std::string& args) {
-        std::cout << "📝 ";
+        // Clean output - no 📝 prefix
         
-        // Simple string parsing
         if (args.size() >= 2 && args.front() == '"' && args.back() == '"') {
             // String literal
             std::string str = args.substr(1, args.length() - 2);
             std::cout << str;
         } else if (args.size() >= 2 && args.front() == '`' && args.back() == '`') {
-            // Template literal - basic support
+            // Template literal
             std::string str = args.substr(1, args.length() - 2);
             
             // Simple ${variable} replacement
@@ -95,7 +92,7 @@ namespace kiren::js {
     }
     
     bool SimpleInterpreter::executeVariableDeclaration(const std::string& line) {
-        // Parse: let x = 42; or let name = "value";
+        // Silent variable declaration - no debug output
         size_t eq_pos = line.find('=');
         if (eq_pos == std::string::npos) return true;
         
@@ -111,36 +108,25 @@ namespace kiren::js {
         Value value = evaluateExpression(right);
         variables_[var_name] = value;
         
-        std::cout << "📦 Variable '" << var_name << "' = ";
-        if (std::holds_alternative<double>(value)) {
-            std::cout << std::get<double>(value);
-        } else if (std::holds_alternative<std::string>(value)) {
-            std::cout << "\"" << std::get<std::string>(value) << "\"";
-        }
-        std::cout << std::endl;
-        
         return true;
     }
     
+    // evaluateExpression ve trim fonksiyonları aynı kalıyor...
     Value SimpleInterpreter::evaluateExpression(const std::string& expr) {
         std::string trimmed = trim(expr);
         
-        // Number literal
         if (!trimmed.empty() && (std::isdigit(trimmed[0]) || (trimmed[0] == '-' && trimmed.length() > 1))) {
             return std::stod(trimmed);
         }
         
-        // String literal
         if (trimmed.size() >= 2 && trimmed.front() == '"' && trimmed.back() == '"') {
             return trimmed.substr(1, trimmed.length() - 2);
         }
         
-        // Variable reference
         if (variables_.find(trimmed) != variables_.end()) {
             return variables_[trimmed];
         }
         
-        // Simple arithmetic: x + y
         size_t plus_pos = trimmed.find(" + ");
         if (plus_pos != std::string::npos) {
             std::string left = trim(trimmed.substr(0, plus_pos));
@@ -154,7 +140,7 @@ namespace kiren::js {
             }
         }
         
-        return std::string(trimmed); // Default to string
+        return std::string(trimmed);
     }
     
     std::string SimpleInterpreter::trim(const std::string& str) {

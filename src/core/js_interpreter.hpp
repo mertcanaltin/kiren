@@ -14,15 +14,16 @@ namespace kiren::js {
     public:
         bool execute(const std::string& code);
         
+        // Public methods for testing and REPL
+        Value evaluateExpression(const std::string& expr);
+        bool parseLine(const std::string& line);
+        
     private:
         std::unordered_map<std::string, Value> variables_;
         
-        // Simple parsing functions
-        bool parseLine(const std::string& line);
+        // Private helper methods
         bool executeConsoleLog(const std::string& args);
         bool executeVariableDeclaration(const std::string& line);
-        
-        Value evaluateExpression(const std::string& expr);
         std::string trim(const std::string& str);
     };
 }
