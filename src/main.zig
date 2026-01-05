@@ -63,7 +63,12 @@ pub fn main() u8 {
     }
 
     // Collect all arguments for process.argv
-    var args = std.process.args();
+    var args = std.process.argsWithAllocator(std.heap.page_allocator) catch {
+        print("Failed to get process arguments\n", .{});
+        return 1;
+    };
+    defer args.deinit();
+
     var argv_list: std.ArrayListUnmanaged([:0]const u8) = .{};
     defer argv_list.deinit(std.heap.page_allocator);
 
@@ -293,7 +298,12 @@ fn runEmbeddedCode(code: []const u8) u8 {
     event_loop.setGlobalEventLoop(&loop);
 
     // Set process.argv from actual args
-    var args = std.process.args();
+    var args = std.process.argsWithAllocator(std.heap.page_allocator) catch {
+        print("Failed to get process arguments\n", .{});
+        return 1;
+    };
+    defer args.deinit();
+
     var argv_list: std.ArrayListUnmanaged([:0]const u8) = .{};
     defer argv_list.deinit(std.heap.page_allocator);
 

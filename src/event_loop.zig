@@ -25,7 +25,7 @@ pub const Timer = struct {
 
 /// I/O callback registration
 pub const IoHandler = struct {
-    fd: std.posix.fd_t,
+    fd: poller.FdType,
     callback: c.JSValue,
     event_type: poller.EventType,
     one_shot: bool,
@@ -42,7 +42,7 @@ pub const EventLoop = struct {
     /// Timer storage
     timers: std.ArrayListUnmanaged(Timer),
     /// I/O handlers
-    io_handlers: std.AutoHashMap(std.posix.fd_t, IoHandler),
+    io_handlers: std.AutoHashMap(poller.FdType, IoHandler),
     /// Next timer ID
     next_timer_id: u32,
     /// Whether the event loop is running
@@ -57,7 +57,7 @@ pub const EventLoop = struct {
             .jobs = JobQueue.init(allocator, context),
             .io_poller = try Poller.init(allocator),
             .timers = .{},
-            .io_handlers = std.AutoHashMap(std.posix.fd_t, IoHandler).init(allocator),
+            .io_handlers = std.AutoHashMap(poller.FdType, IoHandler).init(allocator),
             .next_timer_id = 1,
             .running = false,
             .should_exit = false,
@@ -122,7 +122,7 @@ pub const EventLoop = struct {
     // ===== I/O API =====
 
     /// Register a file descriptor for async I/O
-    pub fn registerIo(self: *EventLoop, fd: std.posix.fd_t, event_type: poller.EventType, callback: c.JSValue, one_shot: bool) !void {
+    pub fn registerIo(self: *EventLoop, fd: poller.FdType, event_type: poller.EventType, callback: c.JSValue, one_shot: bool) !void {
         const cb_dup = c.JS_DupValue(self.context, callback);
 
         try self.io_handlers.put(fd, IoHandler{
@@ -136,7 +136,7 @@ pub const EventLoop = struct {
     }
 
     /// Unregister a file descriptor
-    pub fn unregisterIo(self: *EventLoop, fd: std.posix.fd_t) void {
+    pub fn unregisterIo(self: *EventLoop, fd: poller.FdType) void {
         if (self.io_handlers.fetchRemove(fd)) |entry| {
             c.JS_FreeValue(self.context, entry.value.callback);
         }
@@ -232,11 +232,17 @@ pub const EventLoop = struct {
 
     /// Handle I/O events
     fn handleIoEvents(self: *EventLoop, events: []IoEvent) void {
+        const builtin = @import("builtin");
         for (events) |event| {
             if (self.io_handlers.get(event.fd)) |handler| {
                 // Create event object for JavaScript
                 const event_obj = c.JS_NewObject(self.context);
-                _ = c.JS_SetPropertyStr(self.context, event_obj, "fd", c.JS_NewInt32(self.context, event.fd));
+                // On Windows, FdType is usize; on POSIX it's i32
+                const fd_int: i32 = if (builtin.os.tag == .windows)
+                    @intCast(event.fd)
+                else
+                    event.fd;
+                _ = c.JS_SetPropertyStr(self.context, event_obj, "fd", c.JS_NewInt32(self.context, fd_int));
                 _ = c.JS_SetPropertyStr(self.context, event_obj, "readable", engine.makeBool(event.readable));
                 _ = c.JS_SetPropertyStr(self.context, event_obj, "writable", engine.makeBool(event.writable));
                 _ = c.JS_SetPropertyStr(self.context, event_obj, "error", engine.makeBool(event.error_occurred));

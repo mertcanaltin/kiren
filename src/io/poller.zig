@@ -4,6 +4,9 @@ const posix = std.posix;
 
 const Allocator = std.mem.Allocator;
 
+// Platform-specific fd type
+pub const FdType = if (builtin.os.tag == .windows) usize else posix.fd_t;
+
 /// Event types that can be monitored
 pub const EventType = enum {
     read,
@@ -13,7 +16,7 @@ pub const EventType = enum {
 
 /// An I/O event returned by poll()
 pub const IoEvent = struct {
-    fd: posix.fd_t,
+    fd: FdType,
     readable: bool,
     writable: bool,
     error_occurred: bool,
@@ -27,20 +30,20 @@ pub const IoCallback = *const fn (event: IoEvent) void;
 
 /// Registration info for a file descriptor
 const FdRegistration = struct {
-    fd: posix.fd_t,
+    fd: FdType,
     event_type: EventType,
     callback: ?IoCallback,
     data: ?*anyopaque,
 };
 
 /// Cross-platform I/O Poller
-/// Uses kqueue on macOS/BSD, epoll on Linux
+/// Uses kqueue on macOS/BSD, epoll on Linux, stub on Windows
 pub const Poller = struct {
     allocator: Allocator,
-    /// Platform-specific poll fd
-    poll_fd: posix.fd_t,
+    /// Platform-specific poll fd (unused on Windows)
+    poll_fd: FdType,
     /// Registered file descriptors
-    registrations: std.AutoHashMap(posix.fd_t, FdRegistration),
+    registrations: std.AutoHashMap(FdType, FdRegistration),
     /// Event buffer for poll results
     events_buffer: []align(8) u8,
 
@@ -50,49 +53,59 @@ pub const Poller = struct {
         const poll_fd = try createPollFd();
 
         // Allocate event buffer based on platform
-        const buffer_size = if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd)
-            @sizeOf(posix.Kevent) * MAX_EVENTS
+        // Must be large enough for BOTH platform events AND IoEvent conversion
+        // to avoid buffer overflow when converting platform events to IoEvents
+        const platform_event_size = if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd)
+            @sizeOf(posix.Kevent)
         else if (builtin.os.tag == .linux)
-            @sizeOf(std.os.linux.epoll_event) * MAX_EVENTS
+            @sizeOf(std.os.linux.epoll_event)
         else
-            @sizeOf(posix.pollfd) * MAX_EVENTS;
+            @sizeOf(IoEvent); // Windows: just use IoEvent size
+
+        const buffer_size = @max(platform_event_size, @sizeOf(IoEvent)) * MAX_EVENTS;
 
         const events_buffer = try allocator.alignedAlloc(u8, .@"8", buffer_size);
 
         return Poller{
             .allocator = allocator,
             .poll_fd = poll_fd,
-            .registrations = std.AutoHashMap(posix.fd_t, FdRegistration).init(allocator),
+            .registrations = std.AutoHashMap(FdType, FdRegistration).init(allocator),
             .events_buffer = events_buffer,
         };
     }
 
     pub fn deinit(self: *Poller) void {
-        posix.close(self.poll_fd);
+        if (builtin.os.tag != .windows) {
+            posix.close(self.poll_fd);
+        }
         self.registrations.deinit();
         self.allocator.free(self.events_buffer);
     }
 
-    fn createPollFd() !posix.fd_t {
+    fn createPollFd() !FdType {
         if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
             // kqueue
             return try posix.kqueue();
         } else if (builtin.os.tag == .linux) {
             // epoll
             return try posix.epoll_create1(0);
+        } else if (builtin.os.tag == .windows) {
+            // Windows: stub implementation (no native poll fd)
+            // TODO: implement IOCP for proper async I/O on Windows
+            return 0;
         } else {
-            // Fallback - not implemented
             return error.UnsupportedPlatform;
         }
     }
 
     /// Register a file descriptor for monitoring
-    pub fn register(self: *Poller, fd: posix.fd_t, event_type: EventType, callback: ?IoCallback, data: ?*anyopaque) !void {
+    pub fn register(self: *Poller, fd: FdType, event_type: EventType, callback: ?IoCallback, data: ?*anyopaque) !void {
         if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
             try self.registerKqueue(fd, event_type);
         } else if (builtin.os.tag == .linux) {
             try self.registerEpoll(fd, event_type);
         }
+        // Windows: just track registrations, no kernel polling
 
         try self.registrations.put(fd, FdRegistration{
             .fd = fd,
@@ -103,29 +116,31 @@ pub const Poller = struct {
     }
 
     /// Unregister a file descriptor
-    pub fn unregister(self: *Poller, fd: posix.fd_t) void {
+    pub fn unregister(self: *Poller, fd: FdType) void {
         if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
             self.unregisterKqueue(fd);
         } else if (builtin.os.tag == .linux) {
             self.unregisterEpoll(fd);
         }
+        // Windows: just remove from registrations
 
         _ = self.registrations.remove(fd);
     }
 
     /// Modify event type for a registered fd
-    pub fn modify(self: *Poller, fd: posix.fd_t, event_type: EventType) !void {
+    pub fn modify(self: *Poller, fd: FdType, event_type: EventType) !void {
         if (self.registrations.get(fd)) |reg| {
             var new_reg = reg;
             new_reg.event_type = event_type;
 
             if (builtin.os.tag == .linux) {
                 try self.modifyEpoll(fd, event_type);
-            } else {
+            } else if (builtin.os.tag == .macos or builtin.os.tag == .freebsd or builtin.os.tag == .netbsd or builtin.os.tag == .openbsd) {
                 // For kqueue, unregister and re-register
                 self.unregisterKqueue(fd);
                 try self.registerKqueue(fd, event_type);
             }
+            // Windows: just update registration
 
             try self.registrations.put(fd, new_reg);
         }
@@ -139,6 +154,13 @@ pub const Poller = struct {
             return self.pollKqueue(timeout_ms);
         } else if (builtin.os.tag == .linux) {
             return self.pollEpoll(timeout_ms);
+        } else if (builtin.os.tag == .windows) {
+            // Windows stub: sleep for timeout and return no events
+            // TODO: implement proper IOCP polling
+            if (timeout_ms > 0) {
+                std.Thread.sleep(@as(u64, @intCast(timeout_ms)) * std.time.ns_per_ms);
+            }
+            return &[_]IoEvent{};
         } else {
             return &[_]IoEvent{};
         }

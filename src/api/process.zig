@@ -149,9 +149,13 @@ pub fn register(eng: *engine.Engine) void {
     const arch_str = getArchString();
     eng.setProperty(process, "arch", c.JS_NewString(eng.context, arch_str.ptr));
 
-    // PID (using libc)
-    const pid = std.c.getpid();
-    eng.setProperty(process, "pid", c.JS_NewInt32(eng.context, @intCast(pid)));
+    // PID (platform-specific)
+    // Use i64 to safely represent Windows DWORD (u32) without overflow
+    const pid: i64 = if (builtin.os.tag == .windows)
+        @intCast(std.os.windows.GetCurrentProcessId())
+    else
+        @intCast(std.c.getpid());
+    eng.setProperty(process, "pid", c.JS_NewInt64(eng.context, pid));
 
     // Environment variables
     eng.setProperty(process, "env", buildEnvObject(eng.context));
